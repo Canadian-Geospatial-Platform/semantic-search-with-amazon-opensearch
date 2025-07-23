@@ -2,7 +2,13 @@
     "type": [
         "type.keyword"
     ],
+    "protocol": [
+        "options.protocol.keyword"
+    ],
     "theme": [
+        "theme.keyword"
+    ],
+    "topic_category": [
         "topicCategory.keyword"
     ],
     "org": [
@@ -15,6 +21,9 @@
     ],
     "source_system": [
         "systemName.keyword"
+    ],
+    "mappable": [
+        "mappable.keyword"
     ],
     "eo_collection": [
         "eoCollection.keyword"
