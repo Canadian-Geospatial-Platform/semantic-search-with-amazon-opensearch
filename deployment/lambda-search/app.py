@@ -509,12 +509,16 @@ def lambda_handler(event, context):
             "organization_filter": organization_filter,
             "metadata_source_filter": metadata_source_filter,
             "theme_filter": theme_filter,
+            "topicCategory_filter": topicCategory_filter,
             "type_filter": type_filter,
+            "protocol_filter": protocol_filter,
+            "mappable_filter": mappable_filter,
             #"start_date_filter": start_date_filter,
             #"end_date_filter": end_date_filter,
             #"spatial_filter": spatial_filter,
             "relation": relation,
             "size": size,
+            "from": from_param,
             "ip2geo": ip2geo_data
         }
     ]
