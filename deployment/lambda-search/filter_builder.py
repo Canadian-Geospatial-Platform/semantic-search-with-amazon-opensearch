@@ -26,8 +26,6 @@ def build_wildcard_filter(field_paths, values):
         for field_path in field_paths
     ]
 
-    print(should_clauses)
-
     return {
         "bool": {
             "should": should_clauses,

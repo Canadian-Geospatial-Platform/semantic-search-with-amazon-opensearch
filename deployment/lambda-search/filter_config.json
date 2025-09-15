@@ -12,12 +12,11 @@
         "topicCategory.keyword"
     ],
     "org": [
-        "contact.organisation.en.keyword",
-        "contact.organisation.fr.keyword"
+        "organisation.en.keyword",
+        "organisation.fr.keyword"
     ],
     "foundational": [
-        "contact.keywords.en.keyword",
-        "contact.keywords.fr.keyword"
+        "foundational.keyword"
     ],
     "source_system": [
         "systemName.keyword"

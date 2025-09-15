@@ -52,7 +52,6 @@ def create_opensearch_index(os_client, index_name):
                     "lang": {"type": "keyword"},
                     "id": {"type": "keyword"},
                     "q": {"type": "keyword"},
-                    "ip_address": {"type": "ip"},
                     "user_agent": {"type": "keyword"},
                     "http_method": {"type": "keyword"},
                     "sort_param": {"type": "keyword"},

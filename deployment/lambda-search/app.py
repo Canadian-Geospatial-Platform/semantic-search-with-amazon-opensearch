@@ -404,6 +404,7 @@ def lambda_handler(event, context):
     type_filter = event.get('type', None)
     protocol_filter = event.get('protocol', None)
     mappable_filter = event.get('mappable', None)
+    foundational_filter = event.get('foundational', None)
     eoCollection_filter = event.get('eo_collection', None)
     polarization_filter = event.get('polarization', None)
     orbit_direction_filter = event.get('orbit_direction', None)
@@ -443,6 +444,9 @@ def lambda_handler(event, context):
     if mappable_filter:
         mappable_field = filter_config["mappable"]  # Get field paths from config
         filters.append(build_wildcard_filter(mappable_field, mappable_filter))
+    if foundational_filter:
+        foundational_field = filter_config["foundational"]  # Get field paths from config
+        filters.append(build_wildcard_filter(foundational_field, foundational_filter))
     if eoCollection_filter:
         eo_collection_field = filter_config["eo_collection"]  # Get field paths from config
         filters.append(build_wildcard_filter(eo_collection_field, eoCollection_filter))
@@ -476,20 +480,18 @@ def lambda_handler(event, context):
     # If no filters are specified, set filters to None
     filters = filters if filters else None
 
-    print("filters : ", filters)
+    #print("filters : ", filters)
 
     ####
     #OpenSearch DashBoard code
     ####
     ip_address = event.get('ip_address', '') or ''
+    #print("ip_address", ip_address)
     ip_address_forward = event.get('ip_address_forward', '') or ''
-    print("ip_address_forward", ip_address_forward)
-
+    #print("ip_address_forward", ip_address_forward)
     if ip_address_forward:
-        ip_address = ip_address_forward.split(',')[0].strip() #Use first forwarded IP address if it exists
-    
-    print("ip_address", ip_address)
-
+        ip_address = ip_address_forward.split(',')[0].strip() #Use first forwarded IP address if it exists   
+    #print("final ip", ip_address)
     timestamp = event.get('timestamp', '') or ''
     user_agent = event.get('user_agent', '') or ''
     http_method = event.get('http_method', '') or ''
