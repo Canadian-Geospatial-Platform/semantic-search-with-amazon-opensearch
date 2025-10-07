@@ -27,7 +27,7 @@ The Semantic Search Architecture is a serverless setup consisting of the followi
 6. The API Gateway sends the search results to the frontend and returns search results to the users.
 
 ## API Endpoints
-[https://search-recherche.geocore-stage.api.geo.ca/search-opensearch?](https://search-recherche.geocore-stage.api.geo.ca/search-opensearch?)
+[https://search-recherche.geocore.api.geo.ca/search-opensearch?](https://search-recherche.geocore.api.geo.ca/search-opensearch?)
 
 ## GET Request
 Retrieve viewer configuration data:
@@ -44,20 +44,20 @@ Search filters can be found below. For the most recent filter list, please refer
     "q": "$input.params('q')",                                    #all other parameters are optional
     "bbox": "$input.params('bbox')",                              #comma seperated bounding box: west, south, east, north. Example: -120.0, 49.0, -110.0, 60.0
     "relation": "$input.params('relation')",                      #spatial filter relationship: instersect (default), disjoint, contains, within
-    "begin": "$input.params('begin')",                            #beginning date filter
-    "end": "$input.params('end')",                                #end date filter
+    "begin": "$input.params('begin')",                            #beginning date filter (note: applied to temporal extent begin date value)
+    "end": "$input.params('end')",                                #end date filter       (note: applied to temporal extent end date value)
     "org": "$input.params('org')",                                #organisation who published the dataset
     "type": "$input.params('type')",                              #dataset 'type' (api, dataset, etc.)
-    "protocol": "$input.params('protocol')",                      #protocol (https, ogc wms, esri rest, etc.)
+    "protocol": "$input.params('protocol')",                      #protocol (HTTPS, OGC:WMS, ESRI REST: *, OGC API – *, etc.)
     "mappable": "$input.params('mappable')",                      #boolean true or false to return only mappable records
     "theme": "$input.params('theme')",                            #curated filter for grouping ISO 19139 topic categories into fewer buckets for geo.ca
     "topic_category": "$input.params('topic_category')",          #ISO 19139 topic category
     "foundational": "$input.params('foundational')",              #curated filter for foundational datasets to geo.ca
-    "source_system": "$input.params('source_system')",            #defaults to all systems (possible values: geo-ca, sentinel-1, rcm-ard, ccmeo-datacube)
-    "eo_collection": "$input.params('eo_collection')",            #filter for earth observation datasets
-    "polarization": "$input.params('polarization')",              #filter for earth observation datasets
-    "orbit_direction": "$input.params('orbit_direction')",        #filter for earth observation datasets
-    "lang": "$input.params('lang')",                              #english or french
+    "source_system": "$input.params('source_system')",            #defaults to all systems (possible values: geo-ca, ccmeo-datacube, ccmeo-eodms)
+    "eo_collection": "$input.params('eo_collection')",            #filter for earth observation datasets (possible values: sentinel-1, rcm-ard)
+    "polarization": "$input.params('polarization')",              #filter for earth observation datasets (only for: sentinel-1, rcm-ard)
+    "orbit_direction": "$input.params('orbit_direction')",        #filter for earth observation datasets (only for: sentinel-1, rcm-ard)
+    "lang": "$input.params('lang')",                              #english or french (en or fr)
     "sort": "$input.params('sort')",                              #sort by relevance, date, title
     "order": "$input.params('order')",                            #sort order - defaults to desc unless sort by title 
     "size": "$input.params('size')",                              #maximum results returned
@@ -69,13 +69,20 @@ Search filters can be found below. For the most recent filter list, please refer
 ```bash
 curl -X GET "https://search-recherche.geocore.api.geo.ca/search-opensearch?method=SemanticSearch&q=wildfire"
 ```
-## Response
+## Example response
+
+Note: 'aggs' section is the aggregatation result which find and counts the subset unique elements. Counting  These values are dynamic and will update when additional filters are applied. 
+
 ```bash
 {
   "method": "SemanticSearch",
   "response": {
-    "total_hits": 320,
+    "total_hits": 61,
     "returned_hits": 10,
+    "aggs": {
+      "unique_org": {
+        "buckets": []
+      }
     "items": [
       {
         "type": "FeatureCollection",
