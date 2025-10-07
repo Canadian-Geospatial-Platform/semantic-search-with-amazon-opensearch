@@ -48,9 +48,12 @@ Search filters can be found below. For the most recent filter list, please refer
     "end": "$input.params('end')",                                #end date filter
     "org": "$input.params('org')",                                #organisation who published the dataset
     "type": "$input.params('type')",                              #dataset 'type' (api, dataset, etc.)
-    "theme": "$input.params('theme')",                            #ISO 19139 theme
-    "foundational": "$input.params('foundational')",
-    "source_system": "$input.params('source_system')",            #defaults to all systems
+    "protocol": "$input.params('protocol')",                      #protocol (https, ogc wms, esri rest, etc.)
+    "mappable": "$input.params('mappable')",                      #boolean true or false to return only mappable records
+    "theme": "$input.params('theme')",                            #curated filter for grouping ISO 19139 topic categories into fewer buckets for geo.ca
+    "topic_category": "$input.params('topic_category')",          #ISO 19139 topic category
+    "foundational": "$input.params('foundational')",              #curated filter for foundational datasets to geo.ca
+    "source_system": "$input.params('source_system')",            #defaults to all systems (possible values: geo-ca, sentinel-1, rcm-ard, ccmeo-datacube)
     "eo_collection": "$input.params('eo_collection')",            #filter for earth observation datasets
     "polarization": "$input.params('polarization')",              #filter for earth observation datasets
     "orbit_direction": "$input.params('orbit_direction')",        #filter for earth observation datasets
