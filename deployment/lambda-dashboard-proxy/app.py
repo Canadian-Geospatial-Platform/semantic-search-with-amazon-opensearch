@@ -22,6 +22,7 @@ def lambda_handler(event, context):
     #print(context)
     method = event.get('httpMethod', 'GET')
     path = event.get('path', '/_dashboards/app/home')
+    path = path.lstrip("/")
     #print(f"Request Path: {path}")
     #query_params = event.get('queryStringParameters', {})
     #multi_value_query_params = event.get('multiValueQueryStringParameters', {}) or {}
@@ -90,7 +91,16 @@ def lambda_handler(event, context):
     headers.setdefault("Content-Type", "application/json")
 
     # Construct OpenSearch Dashboards URL
-    opensearch_url = f"{dashboard_endpoint}{path}"
+    #opensearch_url = f"{dashboard_endpoint}{path}"
+
+    # Construct OpenSearch Dashboards or API URL
+    if path.startswith("/_dashboards"):
+        # Go to the Dashboards frontend
+        opensearch_url = f"{dashboard_endpoint}{path}"
+    else:
+        # Hit the raw OpenSearch API (strip /_dashboards from dashboard_endpoint)
+        base_api_endpoint = dashboard_endpoint.split("/_dashboards")[0]
+        opensearch_url = f"{base_api_endpoint}{path}"
     
     # Handle authentication headers
     auth_header = headers.get('Authorization', None)
@@ -133,7 +143,8 @@ def lambda_handler(event, context):
             cookies=cookie_dict,
             #cookies={'security_authentication': cookies} if cookies else None,
             data=body,  # Ensure JSON body is properly formatted
-            allow_redirects=False
+            allow_redirects=False,
+            timeout=(30,30)
         )
     elif method == 'POST' or method == 'PUT' or method == 'DELETE':
         response = requests.request(
@@ -145,7 +156,8 @@ def lambda_handler(event, context):
             cookies=cookie_dict,
             #cookies={'security_authentication': cookies} if cookies else None,
             json=body,  # Ensure JSON body is properly formatted
-            allow_redirects=False
+            allow_redirects=False,
+            timeout=(30,30)
         )
    
     # Process response
@@ -156,25 +168,27 @@ def lambda_handler(event, context):
     content_encoding = response.headers.get("Content-Encoding", "")
     
     # Handle gzip-encoded response for JavaScript files
-    if path.endswith("observabilityDashboards.plugin.js"):
-        buffer = BytesIO()
-        with gzip.GzipFile(fileobj=buffer, mode="wb") as f:
-            f.write(content.encode('utf-8'))
-        compressed_body = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-        lambda_response = {
-            "statusCode": response.status_code,
-            "headers": {
-                "Content-Type": content_type,
-                "Content-Encoding": "gzip",
-                "access-control-allow-origin": "*",
-                "access-control-allow-credentials": "true",
-                "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "access-control-allow-headers": "Content-Type, Authorization, X-Requested-With"
-            },
-            "body": compressed_body,
-            "isBase64Encoded": True
-        }
+    if path.endswith("Dashboards.plugin.js") or path.endswith("Dashboards.plugin.js"):
+        if path.endswith((
+            ".js"
+        )):
+            buffer = BytesIO()
+            with gzip.GzipFile(fileobj=buffer, mode="wb") as f:
+                f.write(content.encode('utf-8'))
+            compressed_body = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            lambda_response = {
+                "statusCode": response.status_code,
+                "headers": {
+                    "Content-Type": content_type,
+                    "Content-Encoding": "gzip",
+                    "access-control-allow-origin": "*",
+                    "access-control-allow-credentials": "true",
+                    "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+                    "access-control-allow-headers": "Content-Type, Authorization, X-Requested-With"
+                },
+                "body": compressed_body,
+                "isBase64Encoded": True
+            }
     else:
         lambda_response = {
             "statusCode": response.status_code,
