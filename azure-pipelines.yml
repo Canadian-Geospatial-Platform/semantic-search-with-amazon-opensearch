@@ -1,0 +1,25 @@
+trigger: none
+
+schedules:
+- cron: "0 2 * * *"   # daily at 02:00 UTC
+  displayName: Daily GitHub backup
+  branches:
+    include:
+    - main
+  always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- checkout: none
+
+- script: |
+    set -e
+
+    git clone --mirror https://$(GITHUB_TOKEN)@github.com/ORG/REPO.git
+    cd REPO.git
+
+    git remote add azure https://$(AZDO_TOKEN)@dev.azure.com/ORG/PROJECT/_git/REPO
+    git push --mirror azure
+  displayName: "Mirror GitHub repo to Azure DevOps"
