@@ -76,6 +76,7 @@ def semantic_search_neighbors(lang, search_text, features, os_client, sort_param
             }
         },
         "size": size,
+        "track_total_hits": True,
         "from": from_param,
         "sort": sort_param,
         "aggs": {
