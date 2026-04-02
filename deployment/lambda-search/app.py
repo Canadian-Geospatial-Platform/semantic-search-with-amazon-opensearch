@@ -121,6 +121,12 @@ def semantic_search_neighbors(lang, search_text, features, os_client, sort_param
                     "field": filter_config["theme"][0],
                     "size": 100
                 }
+            },
+            "unique_type": {
+                "terms": {
+                    "field": filter_config["type"][0],
+                    "size": 100
+                }
             }
         }
     }
@@ -417,6 +423,10 @@ def lambda_handler(event, context):
     """ Spatial filters """
     spatial_filter = event.get('bbox', None)
     relation = event.get('relation', None)
+    
+    """ And/or logic for theme and type filters """
+    theme_logic = event.get('theme_logic', None)
+    type_logic = event.get('type_logic', None)
 
     # Convert filter string into list (handle multi-selection of filters) 
     #organization_list = [org.strip() for org in organization_filter.split(",")]
@@ -432,13 +442,13 @@ def lambda_handler(event, context):
         filters.append(build_wildcard_filter(source_system_field, metadata_source_filter))
     if theme_filter:
         theme_field = filter_config["theme"]  # Get field paths from config
-        filters.append(build_wildcard_filter(theme_field, theme_filter))
+        filters.append(build_wildcard_filter(theme_field, theme_filter, theme_logic))
     if topicCategory_filter:
         topicCategory_field = filter_config["topic_category"]  # Get field paths from config
         filters.append(build_wildcard_filter(topicCategory_field, topicCategory_filter))
     if type_filter:
         type_field = filter_config["type"]  # Get field paths from config
-        filters.append(build_wildcard_filter(type_field, type_filter))
+        filters.append(build_wildcard_filter(type_field, type_filter, type_logic))
     if protocol_filter:
         protocol_field = filter_config["protocol"]  # Get field paths from config
         filters.append(build_wildcard_filter(protocol_field, protocol_filter))

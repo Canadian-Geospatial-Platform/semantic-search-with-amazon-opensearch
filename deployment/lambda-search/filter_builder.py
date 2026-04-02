@@ -1,37 +1,72 @@
 from datetime import datetime
 
-def build_wildcard_filter(field_paths, values):
+def build_wildcard_filter(field_paths, values, operator="any"):
     """
-    Builds a wildcard OR filter for multiple field paths and values.
+    Builds a wildcard filter for multiple field paths and values.
+    Handles AND/OR using operator param
 
     Args:
         field_paths (list): List of field paths from configuration.
         values (str): A comma-separated string of values to filter.
+        operator (str): "any" (OR) or "all" (AND).
 
     Returns:
-        dict: A bool query with should clauses for logical OR.
+        dict: A bool query with must/should clauses for AND/OR
     """
+    print("operator", operator)
     value_list = [val.strip() for val in values.split(",") if val.strip()]
 
-    should_clauses = [
-        {
-            "wildcard": {
-                field_path: {
-                    "value": f"*{value}*",
-                    "case_insensitive": True
+    if operator.lower() == "all":
+        # Each value must match in ANY field
+        must_clauses = []
+
+        for value in value_list:
+            should_per_value = [
+                {
+                    "wildcard": {
+                        field_path: {
+                            "value": f"*{value}*",
+                            "case_insensitive": True
+                        }
                     }
                 }
-        }
-        for value in value_list
-        for field_path in field_paths
-    ]
+                for field_path in field_paths
+            ]
 
-    return {
-        "bool": {
-            "should": should_clauses,
-            "minimum_should_match": 1
+            must_clauses.append({
+                "bool": {
+                    "should": should_per_value,
+                    "minimum_should_match": 1
+                }
+            })
+
+        return {
+            "bool": {
+                "must": must_clauses
+            }
         }
-    }
+
+    else:  # default = "any"
+        # Any value in any field
+        should_clauses = [
+            {
+                "wildcard": {
+                    field_path: {
+                        "value": f"*{value}*",
+                        "case_insensitive": True
+                    }
+                }
+            }
+            for value in value_list
+            for field_path in field_paths
+        ]
+
+        return {
+            "bool": {
+                "should": should_clauses,
+                "minimum_should_match": 1
+            }
+        }
 
 def build_date_filter(begin_field=None, end_field=None, start_date=None, end_date=None):
     """
