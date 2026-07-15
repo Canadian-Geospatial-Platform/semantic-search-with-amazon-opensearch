@@ -6,7 +6,7 @@ import requests
 # import io
 # import time
 import torch
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoConfig, AutoModel
 import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
@@ -21,9 +21,25 @@ def mean_pooling(model_output, attention_mask):
 
 def model_fn(model_dir):
     # Load model from HuggingFace Hub
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    model = AutoModel.from_pretrained(model_dir)
-
+    config = AutoConfig.from_pretrained(
+        model_dir,
+        trust_remote_code=True,
+        local_files_only=True
+    )
+    
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_dir,
+        trust_remote_code=True,
+        local_files_only=True
+    )
+    
+    model = AutoModel.from_pretrained(
+        model_dir,
+        config=config,
+        trust_remote_code=True,
+        local_files_only=True
+    )
+    
     return model, tokenizer
 
 def predict_fn(data, model_and_tokenizer):
@@ -32,7 +48,7 @@ def predict_fn(data, model_and_tokenizer):
 
     # Tokenize sentences
     sentences = data.pop("inputs", data)
-    encoded_input = tokenizer(sentences, padding=True, truncation=True, return_tensors='pt')
+    encoded_input = tokenizer(sentences, padding=True, truncation=True, max_length = tokenizer.model_max_length, return_tensors='pt')
 
     # Compute token embeddings
     with torch.no_grad():
