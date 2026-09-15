@@ -34,7 +34,7 @@ def create_opensearch_connection(aos_host, awsauth):
             http_auth=awsauth,
             use_ssl=True,
             verify_certs=True,
-            connection_class=RequestsHttpConnection
+            connection_class=RequestsHttpConnection,
             # timeout=60,  # Set a higher timeout value
             # max_retries=10,  # Increase the number of retries
             # retry_on_timeout=True
@@ -109,10 +109,13 @@ def load_data_to_opensearch_index(df_en, aos_client, index_name, log_level="INFO
             document = {
                 'id': x.get('features_properties_id', ''),
                 'coordinates': coordinates,
-                'title': x.get('features_properties_title_en', ''),
-                'description': x.get('features_properties_description_en', ''),
+                'title_en': x.get('features_properties_title_en', ''),
+                'title_fr': x.get('features_properties_title_fr', ''),
+                'description_en': x.get('features_properties_description_en', ''),
+                'description_fr': x.get('features_properties_description_fr', ''),
                 'published': x.get('features_properties_date_published_date', ''),
-                'keywords': x.get('features_properties_keywords_en', ''),
+                'keywords_en': x.get('features_properties_keywords_en', ''),
+                'keywords_fr': x.get('features_properties_keywords_fr', ''),
                 'options': json.loads(x.get('features_properties_options', '[]')),
                 'contact': json.loads(x.get('features_properties_contact', '[]')),
                 'topicCategory': x.get('features_properties_topicCategory', ''),
@@ -122,7 +125,7 @@ def load_data_to_opensearch_index(df_en, aos_client, index_name, log_level="INFO
                 'temporalExtent': x.get('temporalExtent', ''),
                 'graphicOverview': json.loads(x.get('features_properties_graphicOverview', '[]')),
                 'language': x.get('features_properties_language', ''),
-                'organisation': x.get('organisation_en', ''),
+                'organisation': x.get('features_properties_org', ''),
                 'popularity': int(x.get('features_popularity', '0')),
                 'systemName': x.get('features_properties_sourceSystemName', ''),
                 'eoCollection': x.get('features_properties_eoCollection', ''),

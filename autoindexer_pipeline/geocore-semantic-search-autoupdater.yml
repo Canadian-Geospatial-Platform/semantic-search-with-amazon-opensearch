@@ -1,0 +1,638 @@
+Parameters:
+  Environment:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /webpresence/environment
+    Description: SSM parameter name for environment
+  DeploymentBucket:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /webpresence/deployment-bucket
+    Description: S3 bucket where all deployment files are stored
+  OSDomainName:
+    Type: String
+    Default: semantic-search
+    Description: OpenSearch domain name
+  OSEndpoint:
+    Type: String
+    Description: OpenSearch endpoint
+  OSModelEndpointName:
+    Type: String
+    Default: gte-multi-ft2
+    Description: Name of model endpoint deployed on sagemaker to use for embedding
+  OSIndex:
+    Type: String
+    Default: gte-multi-ft2
+    Description: Name of index to create or use in Opensearch
+  OSIndexCreate:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Description: If true, creates index (if it does not exist)
+
+Conditions:
+  IsProd: !Equals [prod, !Ref Environment]
+  IsStage: !Equals [stage, !Ref Environment]
+  IsDev: !Equals [dev, !Ref Environment]
+
+Resources:
+  ###############################################
+  # Recording events into DynamoDB
+  ###############################################
+  EventRuleAutoIndexer:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Deleted
+          - Object Created
+        detail:
+          bucket:
+            name:
+              # - !Sub eo-sg-processed-data-sentinel1-${Environment}
+              # - !Sub eo-sg-processed-data-rcm-ard-${Environment}
+              - !Sub webpresence-geocore-json-to-geojson-${Environment}
+              # - webpresence-nlp-data-preprocessing-stage
+          # object:
+          #   key:
+          #     - prefix: semantic_search_se/test-indexer/
+      Targets:
+        - Id: !Ref LambdaRecordObjectUpdate
+          Arn: !GetAtt LambdaRecordObjectUpdate.Arn
+  
+  LambdaRecordObjectUpdate:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: LambdaRecordObjectUpdate
+      Architectures:
+        - x86_64
+      CodeUri: 
+        Bucket: !Ref DeploymentBucket
+        Key: cloudformation-templates/lambda/semantic-search/autoupdater/record-object-update-20260831-1100.zip
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.10
+      MemorySize: 128
+      EphemeralStorage:
+        Size: 512
+      Timeout: 3
+      Tracing: PassThrough
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+      SnapStart:
+        ApplyOn: None
+      Tags: {}
+      LoggingConfig:
+        LogFormat: Text
+        LogGroup: !Ref LambdaLogGroupRecordObjectUpdate
+      Policies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub '${LambdaLogGroupRecordObjectUpdate.Arn}:*'
+          - Sid: AllowPutItemOnObjectUpdatesTable
+            Effect: Allow
+            Action: dynamodb:PutItem
+            Resource: !GetAtt TableIndexUpdates.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TableIndexUpdates
+  
+  LambdaLogGroupRecordObjectUpdate:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      RetentionInDays: 30
+
+  EventRuleAutoIndexerToLambdaRecordObjectUpdateConnector:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaRecordObjectUpdate.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventRuleAutoIndexer.Arn
+  
+  TableIndexUpdates:
+    Type: AWS::DynamoDB::Table
+    # DeletionPolicy: Retain # Do not want to delete table and lose updates on stack redeployment
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: objectId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: objectId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: queue-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: updatedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  ###############################################
+  # Processing events
+  ###############################################
+  ScheduleTriggerAutoUpdate:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      ScheduleExpression: cron(45 23 ? * 3 *)
+      FlexibleTimeWindow:
+        Mode: FLEXIBLE
+        MaximumWindowInMinutes: 15
+      Target:
+        Arn: !GetAtt StateMachineAutoUpdater.Arn
+        RoleArn: !GetAtt ScheduleTriggerAutoUpdateToStateMachineAutoUpdaterRole.Arn
+      ScheduleExpressionTimezone: America/Toronto
+  
+  ScheduleTriggerAutoUpdateToStateMachineAutoUpdaterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+                Service: !Sub scheduler.${AWS::URLSuffix}
+            Action: sts:AssumeRole
+            Condition:
+                ArnLike:
+                  aws:SourceArn:
+                      - !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule*'
+      Policies:
+        - PolicyName: StartExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !GetAtt StateMachineAutoUpdater.Arn
+
+  ###############################################
+  # S3 bucket for update logs
+  ###############################################
+  S3StoreUpdatesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireObjectsAfter30Days
+            Status: Enabled
+            ExpirationInDays: 30
+  
+  ###############################################
+  ## AutoUpdater State machine
+  ###############################################
+  StateMachineAutoUpdaterRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Principal:
+                    Service: !Sub states.${AWS::URLSuffix}
+                  Action: sts:AssumeRole
+                  Condition:
+                    ArnLike:
+                        aws:SourceArn: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*'
+        Policies:
+            - PolicyName: InvokeLambdas
+              PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action: lambda:InvokeFunction
+                      Resource:
+                        - !GetAtt LambdaExtractAffectedObjects.Arn
+                        - !GetAtt LambdaPostUpdateSync.Arn
+            - PolicyName: StartAndSyncAutoIndexer
+              PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action: states:StartExecution
+                      Resource: !GetAtt StateMachineAutoIndexer.Arn
+                    - Effect: Allow
+                      Action:
+                        - states:DescribeExecution
+                        - states:StopExecution
+                      Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:StateMachineAutoIndexer*:*'
+                    - Effect: Allow
+                      Action:
+                        - events:PutTargets
+                        - events:PutRule
+                        - events:DescribeRule
+                      Resource: !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventsForStepFunctionsExecutionRule'
+
+  LambdaExtractAffectedObjects:
+    Type: AWS::Serverless::Function
+    Properties:
+      Architectures:
+        - x86_64
+      Description: ''
+      Environment:
+        Variables:
+          S3_DESTINATION_BUCKET: !Ref S3StoreUpdatesBucket
+          S3_DESTINATION_KEY_PREFIX: '' # for testing
+          TABLE_NAME: !Ref TableIndexUpdates
+      EphemeralStorage:
+        Size: 512
+      ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/semantic-search-auto-embed-python310-lambda-stage:latest'
+      LoggingConfig:
+        LogFormat: Text
+        LogGroup: /aws/lambda/geocore-semantic-search-embed-prep
+      MemorySize: 2048
+      PackageType: Image
+      RecursiveLoop: Terminate
+      SnapStart:
+        ApplyOn: None
+      Tags: {}
+      Timeout: 600
+      Tracing: PassThrough
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: 
+                # - !Sub 'arn:${AWS::Partition}:s3:::webpresence-nlp-data-preprocessing-${Environment}/*'
+                # - !Sub 'arn:${AWS::Partition}:s3:::eo-sg-processed-data-sentinel1-${Environment}/*'
+                # - !Sub 'arn:${AWS::Partition}:s3:::eo-sg-processed-data-rcm-ard-${Environment}/*'
+                - !Sub 'arn:${AWS::Partition}:s3:::webpresence-geocore-json-to-geojson-${Environment}/*'
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource: 
+              - !Sub '${S3StoreUpdatesBucket.Arn}/*'
+              # - 'arn:${AWS::Partition}:s3:::${S3Bucket}/${S3BucketKeyPrefix}*' # for testing
+          - Effect: Allow
+            Action:
+              - dynamodb:Query
+            Resource:
+              - !GetAtt TableIndexUpdates.Arn
+              - !Sub
+                - '${TableArn}/index/*'
+                - TableArn: !GetAtt TableIndexUpdates.Arn
+          - Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchCheckLayerAvailability
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/semantic-search-auto-embed-python310-lambda-stage'
+          - Effect: Allow
+            Action: states:StopExecution
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:StateMachineAutoUpdater*:*'
+
+  LambdaPostUpdateSync:
+    Type: AWS::Serverless::Function
+    Properties:
+      Architectures:
+        - x86_64
+      CodeUri: 
+        Bucket: !Ref DeploymentBucket
+        Key: cloudformation-templates/lambda/semantic-search/autoupdater/post-update-sync-20260831-1100.zip
+      Description: ''
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3StoreUpdatesBucket
+          TABLE_NAME: !Ref TableIndexUpdates
+      EphemeralStorage:
+        Size: 512
+      Handler: lambda_function.lambda_handler
+      LoggingConfig:
+        LogFormat: Text
+        LogGroup: /aws/lambda/geocore-semantic-search-postupdate-sync
+      MemorySize: 128
+      PackageType: Zip
+      RecursiveLoop: Terminate
+      Runtime: python3.10
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+      SnapStart:
+        ApplyOn: None
+      Tags: {}
+      Timeout: 600
+      Tracing: PassThrough
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: 
+                - !Sub '${S3StoreUpdatesBucket.Arn}/*'
+                - !Sub 'arn:${AWS::Partition}:s3:::${DeploymentBucket}/cloudformation-templates/lambda/semantic-search/autoupdater/post-update-sync-*'
+          - Effect: Allow
+            Action:
+              - dynamodb:Query
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+            Resource:
+              - !GetAtt TableIndexUpdates.Arn
+              - !Sub
+                - '${TableArn}/index/*'
+                - TableArn: !GetAtt TableIndexUpdates.Arn
+    
+  StateMachineAutoUpdater:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Role: !GetAtt StateMachineAutoUpdaterRole.Arn
+      Definition:
+        QueryLanguage: JSONata
+        StartAt: Lambda ExtractAffectedObjects
+        States:
+          Lambda ExtractAffectedObjects:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Output: '{% $states.result.Payload %}'
+            Arguments:
+              Payload: "{% $merge([$states.input, {'pipelineExecutionArn': $states.context.Execution.Id}]) %}"
+              FunctionName: ${LambdaExtractAffectedObjectsARN}
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                  - Lambda.TooManyRequestsException
+                IntervalSeconds: 1
+                MaxAttempts: 3
+                BackoffRate: 2
+            Next: Step Functions StartExecution
+          Step Functions StartExecution:
+            Type: Task
+            Resource: arn:aws:states:::states:startExecution.sync:2
+            Arguments:
+              StateMachineArn: ${StepFunctionIndexerARN}
+              Input:
+                modelEndpointName: ${DefineOSModelEndpointName}
+                osIndex: ${DefineOSIndex}
+                osIndexCreate: ${DefineOSIndexCreate}
+                corpusS3Path: '{% $states.input.s3_destination %}'
+                region: ${DefineRegion}
+                AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$: '{% $states.context.Execution.Id %}'
+            Assign:
+              run_timestamp: '{% $states.input.run_timestamp %}'
+              corpus_s3_file: '{% $states.input.s3_destination %}'
+              error_list: '{% $states.input.error_list %}'
+            Next: Lambda PostUpdateSync
+          Lambda PostUpdateSync:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Output: '{% $states.result.Payload %}'
+            Arguments:
+              Payload:
+                corpus_s3_file: '{% $corpus_s3_file %}'
+                error_list: '{% $error_list %}'
+                run_timestamp: '{% $run_timestamp %}'
+              FunctionName: ${LambdaPostUpdateSyncARN}
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                  - Lambda.TooManyRequestsException
+                IntervalSeconds: 1
+                MaxAttempts: 3
+                BackoffRate: 2
+            End: true
+      Tracing:
+        Enabled: false
+      Type: STANDARD
+      DefinitionSubstitutions:
+        LambdaExtractAffectedObjectsARN: !GetAtt LambdaExtractAffectedObjects.Arn
+        LambdaPostUpdateSyncARN: !GetAtt LambdaPostUpdateSync.Arn
+        StepFunctionIndexerARN: !GetAtt StateMachineAutoIndexer.Arn
+        DefineOSModelEndpointName: !Ref OSModelEndpointName
+        DefineOSIndex: !Ref OSIndex
+        DefineOSIndexCreate: !Ref OSIndexCreate
+        DefineS3StoreUpdatesBucket: !Ref S3StoreUpdatesBucket
+        DefineS3StoreUpdatesBucketKeyPrefix: '' # for testing
+        TableIndexUpdatesName: !Ref TableIndexUpdates
+        DefineRegion: !Sub '${AWS::Region}'
+  
+  ###############################################
+  ## AutoIndexer State machine
+  ###############################################
+  SagemakerToResourcesConnectorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+                Service:
+                - !Sub 'sagemaker.${AWS::URLSuffix}'
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn:
+                  - !Sub 'arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:processing-job/*'
+      Policies:
+        - PolicyName: ECRPullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Action: ecr:GetAuthorizationToken
+                  Resource: '*'
+                - Effect: Allow
+                  Action:
+                    - ecr:BatchGetImage
+                    - ecr:GetDownloadUrlForLayer
+                    - ecr:BatchCheckLayerAvailability
+                  Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/semantic-search-auto-embed-processing-job'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow # For Processing Job Mounts
+                  Action:
+                    - s3:ListBucket
+                  Resource:
+                    - !GetAtt S3StoreUpdatesBucket.Arn
+                - Effect: Allow # For Processing Job Mounts
+                  Action:
+                    - s3:GetObject
+                  Resource:
+                    - !Sub '${S3StoreUpdatesBucket.Arn}/*'
+                    - !Sub 'arn:aws:s3:::sagemaker-${AWS::Region}-${AWS::AccountId}/sentence-transformers-model/*'
+                - Effect: Allow
+                  Action: s3:PutObject
+                  Resource:
+                    - !Sub '${S3StoreUpdatesBucket.Arn}/*'
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:Query
+                    - dynamodb:Scan
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/theme'
+                    - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/foundational'
+        - PolicyName: InvokeModelEndpoint
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Action:
+                    - sagemaker:InvokeEndpoint
+                    - sagemaker:DescribeEndpoint
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${OSModelEndpointName}'
+                - Effect: Allow
+                  Action:
+                    - sagemaker:DescribeEndpointConfig
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint-config/*'
+                - Effect: Allow
+                  Action:
+                    - sagemaker:DescribeModel
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:model/*'
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Action:
+                    - es:ESHttpHead
+                    - es:ESHttpGet
+                    - es:ESHttpPut
+                    - es:ESHttpPost
+                    - es:ESHttpDelete
+                  Resource:
+                    # - !Sub 'arn:${AWS::Partition}:es:${AWS::Region}:${AWS::AccountId}:domain/${OSDomainName}'
+                    - !Sub 'arn:${AWS::Partition}:es:${AWS::Region}:${AWS::AccountId}:domain/${OSDomainName}/*'
+        - PolicyName: LogCreation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                    - logs:CreateLogGroup
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/ProcessingJobs*'
+  
+  StateMachineAutoIndexerRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Principal:
+                    Service: !Sub 'states.${AWS::URLSuffix}'
+                  Action: sts:AssumeRole
+                  Condition:
+                    ArnLike:
+                      aws:SourceArn: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*'
+        Policies:
+        - PolicyName: RunSagemakerProcessingJobSync
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+                - Effect: Allow
+                  Action:
+                    - sagemaker:CreateProcessingJob
+                    - sagemaker:DescribeProcessingJob
+                    - sagemaker:StopProcessingJob
+                  Resource: !Sub 'arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:processing-job/search-autoupdater-*'
+                - Effect: Allow
+                  Action:
+                    - events:PutTargets
+                    - events:PutRule
+                    - events:DescribeRule
+                  Resource: !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventsForSageMakerProcessingJobsRule'
+                - Effect: Allow
+                  Action:
+                    - sagemaker:ListTags
+                    - sagemaker:AddTags
+                  Resource: '*'
+                - Effect: Allow
+                  Action: iam:PassRole
+                  Resource: !GetAtt SagemakerToResourcesConnectorRole.Arn
+                  Condition:
+                    StringEquals:
+                        iam:PassedToService: !Sub 'sagemaker.${AWS::URLSuffix}'
+
+  StateMachineAutoIndexer:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Role: !GetAtt StateMachineAutoIndexerRole.Arn
+      Definition:
+        QueryLanguage: JSONata
+        StartAt: SageMaker ProcessAndEmbedRecords
+        States:
+          SageMaker ProcessAndEmbedRecords:
+            Type: Task
+            Resource: arn:aws:states:::sagemaker:createProcessingJob.sync
+            Arguments:
+              AppSpecification:
+                ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/semantic-search-auto-embed-processing-job:latest'
+              Environment:
+                model_endpoint: '{% $states.input.modelEndpointName %}'
+                opensearch_endpoint: !Ref OSEndpoint
+                opensearch_index: '{% $states.input.osIndex %}'
+                opensearch_index_create_if_not_exists: '{% $states.input.osIndexCreate %}'
+                corpus_s3filepath: '{% $states.input.corpusS3Path %}'
+              ProcessingResources:
+                ClusterConfig:
+                  InstanceCount: 1
+                  InstanceType: ml.m5.xlarge
+                  VolumeSizeInGB: 20
+              RoleArn: !GetAtt SagemakerToResourcesConnectorRole.Arn
+              ProcessingJobName: "{% 'search-autoupdater-' & $states.context.Execution.Name %}"
+              ProcessingInputs:
+                - InputName: data
+                  S3Input:
+                    S3Uri: !Sub 
+                      - "{% 's3://${S3Bucket}/' & $states.input.corpusS3Path %}"
+                      - S3Bucket: !Ref S3StoreUpdatesBucket
+                    LocalPath: /opt/ml/processing/input/
+                    S3DataType: S3Prefix
+                    S3InputMode: File
+              ProcessingOutputConfig:
+                Outputs:
+                  - OutputName: output
+                    S3Output: 
+                      S3Uri: !Sub 
+                        - "{% 's3://${S3Bucket}/' %}"
+                        - S3Bucket: !Ref S3StoreUpdatesBucket
+                      LocalPath: /opt/ml/processing/output/
+                      S3UploadMode: EndOfJob
+              StoppingCondition:
+                MaxRuntimeInSeconds: 21600
+            End: true
+      Tracing:
+        Enabled: false
+      Type: STANDARD
+      
+
+Transform: AWS::Serverless-2016-10-31
