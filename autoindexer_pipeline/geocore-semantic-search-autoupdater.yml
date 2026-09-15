@@ -252,7 +252,7 @@ Resources:
           TABLE_NAME: !Ref TableIndexUpdates
       EphemeralStorage:
         Size: 512
-      ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/semantic-search-auto-embed-python310-lambda-stage:latest'
+      ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/semantic-search-auto-embed-python310-lambda-stage:latest' # code in lambda_extract_objects/
       LoggingConfig:
         LogFormat: Text
         LogGroup: /aws/lambda/geocore-semantic-search-embed-prep
@@ -595,7 +595,7 @@ Resources:
             Resource: arn:aws:states:::sagemaker:createProcessingJob.sync
             Arguments:
               AppSpecification:
-                ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/semantic-search-auto-embed-processing-job:latest'
+                ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/semantic-search-auto-embed-processing-job:latest' # code in sagemaker_processing_job/
               Environment:
                 model_endpoint: '{% $states.input.modelEndpointName %}'
                 opensearch_endpoint: !Ref OSEndpoint
