@@ -51,8 +51,9 @@ Resources:
         detail:
           bucket:
             name:
-              - !Sub eo-sg-processed-data-sentinel1-${Environment}
-              - !Sub eo-sg-processed-data-rcm-ard-${Environment}
+              # - !Sub eo-sg-processed-data-sentinel1-${Environment}
+              # - !Sub eo-sg-processed-data-rcm-ard-${Environment}
+              - !Sub webpresence-geocore-json-to-geojson-${Environment}
               # - webpresence-nlp-data-preprocessing-stage
           # object:
           #   key:
@@ -271,8 +272,9 @@ Resources:
               - s3:GetObject
             Resource: 
                 # - !Sub 'arn:${AWS::Partition}:s3:::webpresence-nlp-data-preprocessing-${Environment}/*'
-                - !Sub 'arn:${AWS::Partition}:s3:::eo-sg-processed-data-sentinel1-${Environment}/*'
-                - !Sub 'arn:${AWS::Partition}:s3:::eo-sg-processed-data-rcm-ard-${Environment}/*'
+                # - !Sub 'arn:${AWS::Partition}:s3:::eo-sg-processed-data-sentinel1-${Environment}/*'
+                # - !Sub 'arn:${AWS::Partition}:s3:::eo-sg-processed-data-rcm-ard-${Environment}/*'
+                - !Sub 'arn:${AWS::Partition}:s3:::webpresence-geocore-json-to-geojson-${Environment}/*'
           - Effect: Allow
             Action:
               - s3:PutObject

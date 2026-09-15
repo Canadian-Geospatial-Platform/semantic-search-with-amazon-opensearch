@@ -26,7 +26,7 @@ The pipeline is split into 2 major steps:
 
 *Why do we need step 1?* Step 1 acts as an accumulator of all events that need to be processed and it is necessary in order to justify the cost associated with step 2. Step 2 uses a Sagemaker processing job - these jobs take a while to spin up and a while to finish processing as resources are being allocated, libraries are being loaded and volumes are being mounted. In order to justify this associated overhead, we need to ensure that we are processing large enough batches of object changes. Hence, it is essential to have a preliminary step to hold these events in a "queue" until the processing step is triggered.
 
-*What triggers step 2?* Step 2 is triggered via an EventBridge schedule - a cron-like rule that invokes a target at set intervals of time. Specifically, it is currently invoking the processing step daily at 23:45-00:00, to allow changes to both accumulate and be processed in a timely manner. However, if a prompt trigger of the pipeline is required, an execution run of the AutoUpdater step function can be manually triggered as well.
+*What triggers step 2?* Step 2 is triggered via an EventBridge schedule - a cron-like rule that invokes a target at set intervals of time. Specifically, it is currently invoking the processing step once per week at 23:45-00:00, to allow changes to both accumulate and be processed in a timely manner. However, if a prompt trigger of the pipeline is required, an execution run of the AutoUpdater step function can be manually triggered as well.
 
 
 ## Event Accumulator
