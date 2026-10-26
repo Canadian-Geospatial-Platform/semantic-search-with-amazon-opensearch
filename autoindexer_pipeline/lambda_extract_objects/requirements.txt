@@ -1,6 +1,6 @@
 cramjam==2.11.0
 fastparquet==2024.11.0
-fsspec==2025.10.0
+fsspec==2026.6.0
 numpy==2.0.2
 packaging==26.2
 pandas==2.3.3
